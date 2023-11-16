@@ -10,3 +10,5 @@ struct vma_info {
 };
 
 int find_vma(struct vma_info* vma, int pid, unsigned long long vaddr);
+int resolve_full_path(std::string& file, std::string& result);
+unsigned int get_file_inode(const char* path);

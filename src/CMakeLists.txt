@@ -16,6 +16,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_BINARY_DIR}/include 
     ${CMAKE_BINARY_DIR}/src/libbpf/include/uapi 
+    ${CMAKE_SOURCE_DIR}/uprobe-headers
     )
 
 add_dependencies(rdma_tracer uprobe_skel)

@@ -1,6 +1,6 @@
 enum callback_type {
-    SEND,
-    RECV
+    IBV_POST_SEND,
+    IBV_POST_RECV,
 };
 
 
