@@ -25,7 +25,7 @@ add_dependencies(rdma_tracer uprobe_skel)
 add_library(uprobe_bpf OBJECT ${CMAKE_SOURCE_DIR}/src/uprobe.bpf.c)
 target_compile_options(uprobe_bpf PRIVATE -target bpf -D__TARGET_ARCH_x86)
 set_target_properties(uprobe_bpf PROPERTIES COMPILE_FLAGS "-xc")
-add_dependencies(uprobe_bpf libbpf vmlinux.h uprobe_bpf_program)
+add_dependencies(uprobe_bpf libbpf uprobe_bpf_program)
 add_custom_target(uprobe_bpf_program DEPENDS ${CMAKE_SOURCE_DIR}/src/uprobe.bpf.c)
 
 # Generate uprobe.skel.h from uprobe.bpf.o
@@ -64,10 +64,10 @@ ExternalProject_Add(libbpf
 )
 add_dependencies(rdma_tracer libbpf)
 
-add_custom_target(vmlinux.h DEPENDS ${CMAKE_SOURCE_DIR}/src/vmlinux.h)
-add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/src/vmlinux.h
-    COMMAND bpftool btf dump file /sys/kernel/btf/vmlinux format c > ${CMAKE_SOURCE_DIR}/src/vmlinux.h
-)
+# add_custom_target(vmlinux.h DEPENDS ${CMAKE_SOURCE_DIR}/src/vmlinux.h)
+# add_custom_command(
+    # OUTPUT ${CMAKE_SOURCE_DIR}/src/vmlinux.h
+    # COMMAND bpftool btf dump file /sys/kernel/btf/vmlinux format c > ${CMAKE_SOURCE_DIR}/src/vmlinux.h
+# )
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
