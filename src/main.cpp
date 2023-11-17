@@ -38,7 +38,6 @@ void handle_static_callback_uprobe_attach(void* ctx,
     struct callback_event* event = (struct callback_event*)data;
     unsigned long long vaddr = event->callback_vaddr;
     unsigned int pid = event->pid_tgid >> 32;
-    unsigned int tgid = event->pid_tgid & 0xffffffff;
     // find the file offset
     struct vma_info info;
     if (find_vma(&info, pid, vaddr)) {
