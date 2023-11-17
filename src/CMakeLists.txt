@@ -4,7 +4,7 @@ project(rdma_tracer)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_COMPILER "clang")
 
-# set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_COMPILER "clang++")
 add_compile_options(-g -O2 -static)
 
@@ -32,9 +32,9 @@ add_custom_target(uprobe_bpf_program DEPENDS ${CMAKE_SOURCE_DIR}/src/uprobe.bpf.
 add_custom_command(
     OUTPUT ${CMAKE_SOURCE_DIR}/src/uprobe.skel.h
     COMMAND cp $<TARGET_OBJECTS:uprobe_bpf> /tmp/uprobe.bpf.o
-    COMMAND bpftool gen skeleton /tmp/uprobe.bpf.o > ${CMAKE_SOURCE_DIR}/src/uprobe.skel.h
+    COMMAND ${CMAKE_BINARY_DIR}/bpftool gen skeleton /tmp/uprobe.bpf.o > ${CMAKE_SOURCE_DIR}/src/uprobe.skel.h
     COMMAND rm /tmp/uprobe.bpf.o
-    DEPENDS uprobe_bpf uprobe_bpf_program
+    DEPENDS uprobe_bpf uprobe_bpf_program bpftool
 )
 
 target_link_libraries(
@@ -64,10 +64,27 @@ ExternalProject_Add(libbpf
 )
 add_dependencies(rdma_tracer libbpf)
 
+# Download and build bpftool 
+include(ExternalProject)
+set(BPFTOOL_ROOT ${CMAKE_BINARY_DIR}/src/bpftool)
+set(BPFTOOL_MAKE cd ${BPFTOOL_ROOT}/src && make -j8)
+set(BPFTOOL_INSTALL cd ${BPFTOOL_ROOT}/src && make -j8 && cp bpftool ${CMAKE_BINARY_DIR}/bpftool)
+ExternalProject_Add(bpftool
+    GIT_REPOSITORY https://github.com/libbpf/bpftool.git
+    GIT_TAG v6.7.0
+    PREFIX ${CMAKE_BINARY_DIR}
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND ${BPFTOOL_MAKE}
+    INSTALL_COMMAND ${BPFTOOL_INSTALL}
+)
+add_dependencies(bpftool libbpf)
+
+
+
 # add_custom_target(vmlinux.h DEPENDS ${CMAKE_SOURCE_DIR}/src/vmlinux.h)
 # add_custom_command(
     # OUTPUT ${CMAKE_SOURCE_DIR}/src/vmlinux.h
     # COMMAND bpftool btf dump file /sys/kernel/btf/vmlinux format c > ${CMAKE_SOURCE_DIR}/src/vmlinux.h
 # )
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

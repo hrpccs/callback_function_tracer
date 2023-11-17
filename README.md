@@ -11,10 +11,10 @@ And to build bpf applications, the following development tools should also be in
 
 ```
 # Ubuntu
-sudo apt-get install -y cmake make clang llvm libelf-dev linux-tools-$(uname -r)
+sudo apt-get install -y git cmake make clang llvm libelf-dev linux-tools-$(uname -r)
 
 # RHEL
-sudo yum install -y cmake make clang llvm elfutils-libelf-devel bpftool
+sudo yum install -y git cmake make clang llvm elfutils-libelf-devel bpftool
 
 # WSL2 
 # bpftool which shall be compiled and installed from kernel souce code provided by Microsoft

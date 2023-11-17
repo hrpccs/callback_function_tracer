@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
 
+#include "header.h"
 #include "helpers.h"
 #include "time.h"
-#include "uprobe.h"
 #include "uprobe.skel.h"
 #include <bpf/libbpf.h>
 #include <cstdio>
@@ -71,12 +71,12 @@ void handle_static_callback_uprobe_attach(void* ctx,
                                                -1,
                                                info.path.c_str(),
                                                file_offset);
-            skel->links.uretprobe_ibv_post_send =
-                    bpf_program__attach_uprobe(skel->progs.uretprobe_ibv_post_send,
-                                               true,
-                                               -1,
-                                               info.path.c_str(),
-                                               file_offset);
+            skel->links.uretprobe_ibv_post_send = bpf_program__attach_uprobe(
+                    skel->progs.uretprobe_ibv_post_send,
+                    true,
+                    -1,
+                    info.path.c_str(),
+                    file_offset);
             break;
         case IBV_POST_RECV:
             printf("attach ibv_post_recv %s file_offset %d\n",
@@ -88,12 +88,12 @@ void handle_static_callback_uprobe_attach(void* ctx,
                                                -1,
                                                info.path.c_str(),
                                                file_offset);
-            skel->links.uretprobe_ibv_post_recv =
-                    bpf_program__attach_uprobe(skel->progs.uretprobe_ibv_post_recv,
-                                               true,
-                                               -1,
-                                               info.path.c_str(),
-                                               file_offset);
+            skel->links.uretprobe_ibv_post_recv = bpf_program__attach_uprobe(
+                    skel->progs.uretprobe_ibv_post_recv,
+                    true,
+                    -1,
+                    info.path.c_str(),
+                    file_offset);
             break;
         default:
             printf("unknown type\n");
@@ -102,24 +102,24 @@ void handle_static_callback_uprobe_attach(void* ctx,
     attach_info_set.insert(key);
 }
 
-int attach_init_uprobe_libibverbs(struct uprobe_bpf* skel){
-   std::string lib_path = "libibverbs.so.1";
-   std::string lib_path_full;
-   unsigned int inode = 0;
-   unsigned int offset = 0;
+int attach_init_uprobe_libibverbs(struct uprobe_bpf* skel) {
+    std::string lib_path = "libibverbs.so.1";
+    std::string lib_path_full;
+    unsigned int inode = 0;
+    unsigned int offset = 0;
     if (resolve_full_path(lib_path, lib_path_full)) {
-         printf("resolve full path failed\n");
-         return -1;
+        printf("resolve full path failed\n");
+        return -1;
     }
-    inode = get_file_inode(lib_path_full.c_str()); 
-    printf("lib_path_full: %s inode: %d\n", lib_path_full.c_str(),inode);
+    inode = get_file_inode(lib_path_full.c_str());
+    printf("lib_path_full: %s inode: %d\n", lib_path_full.c_str(), inode);
     char function_name[] = "ibv_create_qp";
 
     // nm -D <full path> | grep <func name>
     // nm -D /usr/lib64/libibverbs.so.1 | grep ibv_create_qp
     // 0000000000017cb0 T ibv_create_qp@@IBVERBS_1.1
     // 0000000000010ec0 T ibv_create_qp@IBVERBS_1.0
-    
+
     // char cmd[PATH_MAX];
     // sprintf(cmd, "nm -D %s | grep %s", lib_path_full.c_str(), function_name);
     std::string cmd = "nm -D " + lib_path_full + " | grep " + function_name;
@@ -144,30 +144,72 @@ int attach_init_uprobe_libibverbs(struct uprobe_bpf* skel){
         offset = strtoul(buf, NULL, 16);
         printf("offset: 0x%x\n", offset);
         attach_info_t key = make_attach_info(inode, offset);
-        if(attach_info_set.find(key) != attach_info_set.end()){
+        if (attach_info_set.find(key) != attach_info_set.end()) {
             continue;
         }
-        skel->links.uprobe_ibv_create_qp = bpf_program__attach_uprobe(
-                skel->progs.uprobe_ibv_create_qp,
-                false,
-                -1,
-                lib_path_full.c_str(),
-                offset);
-        skel->links.uretprobe_ibv_create_qp = bpf_program__attach_uprobe(
-                skel->progs.uretprobe_ibv_create_qp,
-                true,
-                -1,
-                lib_path_full.c_str(),
-                offset);
+        skel->links.uprobe_ibv_create_qp =
+                bpf_program__attach_uprobe(skel->progs.uprobe_ibv_create_qp,
+                                           false,
+                                           -1,
+                                           lib_path_full.c_str(),
+                                           offset);
     }
     return 0;
+}
+
+void handle_trace_event(void* ctx, int cpu, void* data, __u32 data_sz) {
+    struct event* event = (struct event*)data;
+    unsigned int pid = event->pid_tgid >> 32;
+    unsigned int tgid = event->pid_tgid & 0xffffffff;
+    switch (event->type) {
+        case IBV_POST_SEND_ENTER:
+            printf("ibv_post_send -- enter -- pid %u tgid %u ts %llu\n",pid,tgid,event->timestamp);
+            break;
+        case IBV_POST_SEND_EXIT:
+            printf("ibv_post_send -- exit -- pid %u tgid %u ts %llu\n",pid,tgid,event->timestamp);
+            break;
+        case IBV_POST_RECV_ENTER:
+            printf("ibv_post_recv -- enter -- pid %u tgid %u ts %llu\n",pid,tgid,event->timestamp);
+            break;
+        case IBV_POST_RECV_EXIT:
+            printf("ibv_post_recv -- exit -- pid %u tgid %u ts %llu\n",pid,tgid,event->timestamp);
+            break;
+        default:
+            printf("unknown type\n");
+            break;
+    }
+}
+
+void trace_event_poller(struct uprobe_bpf* skel) {
+    printf("trace event poller started\n");
+    struct perf_buffer* trace_pb = NULL;
+    int err;
+    LIBBPF_OPTS(perf_buffer_opts, pb_opts);
+    trace_pb = perf_buffer__new(bpf_map__fd(skel->maps.trace_events),
+                                8,
+                                handle_trace_event,
+                                nullptr,
+                                skel,
+                                &pb_opts);
+    if(libbpf_get_error(trace_pb)) {
+        fprintf(stderr, "Failed to open perf buffer\n");
+        err = -libbpf_get_error(trace_pb);
+        return;
+    }
+    while (1) {
+        int err = perf_buffer__poll(trace_pb, 100);
+        if (err < 0 && errno != EINTR) {
+            fprintf(stderr, "Error polling perf buffer: %d\n", err);
+            return;
+        }
+    }
 }
 
 int main(int argc, char** argv) {
     /* Cleaner handling of Ctrl-C */
     struct uprobe_bpf* skel;
     int err;
-    struct perf_buffer* pb = NULL;
+    struct perf_buffer* cb_pb = NULL;
     LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
     LIBBPF_OPTS(perf_buffer_opts, pb_opts);
 
@@ -179,6 +221,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    std::thread trace_event_poller_thread(trace_event_poller, skel);
+    trace_event_poller_thread.detach();
     attach_init_uprobe_libibverbs(skel);
     err = uprobe_bpf__attach(skel);
     if (err) {
@@ -186,20 +230,21 @@ int main(int argc, char** argv) {
         goto cleanup;
     }
 
-    pb = perf_buffer__new(bpf_map__fd(skel->maps.callback_events),
-                          8,
-                          handle_static_callback_uprobe_attach,
-                          nullptr,
-                          skel,
-                          &pb_opts);
-    if (libbpf_get_error(pb)) {
+    cb_pb = perf_buffer__new(bpf_map__fd(skel->maps.callback_events),
+                             8,
+                             handle_static_callback_uprobe_attach,
+                             nullptr,
+                             skel,
+                             &pb_opts);
+    if (libbpf_get_error(cb_pb)) {
         fprintf(stderr, "Failed to open perf buffer\n");
-        err = -libbpf_get_error(pb);
+        err = -libbpf_get_error(cb_pb);
         goto cleanup;
     }
 
+
     while (1) {
-        err = perf_buffer__poll(pb, 100);
+        err = perf_buffer__poll(cb_pb, 100);
         if (err < 0 && errno != EINTR) {
             fprintf(stderr, "Error polling perf buffer: %d\n", err);
             goto cleanup;
