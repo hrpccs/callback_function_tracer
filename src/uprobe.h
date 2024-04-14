@@ -1,7 +1,5 @@
+#include "vmlinux.h"
 #include "header.h"
-#include <infiniband/verbs.h>
-#include <linux/bpf.h>
-#include <linux/ptrace.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>

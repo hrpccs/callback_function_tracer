@@ -35,93 +35,11 @@ void handle_static_callback_uprobe_attach(void* ctx,
                                           int cpu,
                                           void* data,
                                           __u32 data_sz) {
-    struct callback_event* event = (struct callback_event*)data;
-    unsigned long long vaddr = event->callback_vaddr;
-    unsigned int pid = event->pid_tgid >> 32;
-    // find the file offset
-    struct vma_info info;
-    if (find_vma(&info, pid, vaddr)) {
-        printf("find vma failed\n");
-        return;
-    }
-
-    unsigned int file_offset = vaddr - info.start + info.offset;
-    attach_info_t key = (attach_info_t)info.inode << 32 | file_offset;
-
-    if (attach_info_set.find(key) != attach_info_set.end()) {
-        return;
-    }
-
-    printf("path: %s\n", info.path.c_str());
-    printf("inode: %u\n", info.inode);
-    printf("offset: %u\n", info.offset);
-    printf("file_offset: %u\n", file_offset);
-
-    // attach the uprobe
-    struct uprobe_bpf* skel = (struct uprobe_bpf*)ctx;
-    switch (event->type) {
-        case IBV_POST_SEND:
-            printf("attach ibv_post_send %s file_offset %d\n",
-                   info.path.c_str(),
-                   file_offset);
-            skel->links.uprobe_ibv_post_send =
-                    bpf_program__attach_uprobe(skel->progs.uprobe_ibv_post_send,
-                                               false,
-                                               -1,
-                                               info.path.c_str(),
-                                               file_offset);
-            skel->links.uretprobe_ibv_post_send = bpf_program__attach_uprobe(
-                    skel->progs.uretprobe_ibv_post_send,
-                    true,
-                    -1,
-                    info.path.c_str(),
-                    file_offset);
-            break;
-        case IBV_POST_RECV:
-            printf("attach ibv_post_recv %s file_offset %d\n",
-                   info.path.c_str(),
-                   file_offset);
-            skel->links.uprobe_ibv_post_recv =
-                    bpf_program__attach_uprobe(skel->progs.uprobe_ibv_post_recv,
-                                               false,
-                                               -1,
-                                               info.path.c_str(),
-                                               file_offset);
-            skel->links.uretprobe_ibv_post_recv = bpf_program__attach_uprobe(
-                    skel->progs.uretprobe_ibv_post_recv,
-                    true,
-                    -1,
-                    info.path.c_str(),
-                    file_offset);
-            break;
-        default:
-            printf("unknown type\n");
-            break;
-    }
-    attach_info_set.insert(key);
 }
 
-int attach_init_uprobe_libibverbs(struct uprobe_bpf* skel) {
-    std::string lib_path = "libibverbs.so.1";
-    std::string lib_path_full;
-    unsigned int inode = 0;
-    unsigned int offset = 0;
-    if (resolve_full_path(lib_path, lib_path_full)) {
-        printf("resolve full path failed\n");
-        return -1;
-    }
-    inode = get_file_inode(lib_path_full.c_str());
-    printf("lib_path_full: %s inode: %d\n", lib_path_full.c_str(), inode);
-    char function_name[] = "ibv_create_qp";
-
-    // nm -D <full path> | grep <func name>
-    // nm -D /usr/lib64/libibverbs.so.1 | grep ibv_create_qp
-    // 0000000000017cb0 T ibv_create_qp@@IBVERBS_1.1
-    // 0000000000010ec0 T ibv_create_qp@IBVERBS_1.0
-
-    // char cmd[PATH_MAX];
-    // sprintf(cmd, "nm -D %s | grep %s", lib_path_full.c_str(), function_name);
-    std::string cmd = "nm -D " + lib_path_full + " | grep " + function_name;
+int attach_init_uprobe(struct uprobe_bpf* skel) {
+    //pgrep -f "nginx: worker"
+    std::string cmd = "pgrep -fax \"nginx: worker process\"";
 
     FILE* fp = popen(cmd.c_str(), "r");
     if (!fp) {
@@ -131,28 +49,81 @@ int attach_init_uprobe_libibverbs(struct uprobe_bpf* skel) {
 
     char buf[PATH_MAX];
     // get multiple lines
-    while (fgets(buf, PATH_MAX, fp)) {
+    bool attach_uretprobe = false;
+    // while (fgets(buf, PATH_MAX, fp)) {
+        fgets(buf, PATH_MAX, fp);
         // add additional string validation
         printf("buf: %s", buf);
-        char* p = strchr(buf, ' ');
-        if (!p) {
-            printf("strchr failed\n");
+        // int pid = atoi(buf);
+        int pid = 799921;
+        printf("pid: %d\n", pid);
+        std::string path = "/proc/" + std::to_string(pid) + "/root" + "/usr/sbin/nginx";
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
+        uprobe_opts.retprobe = false;
+        uprobe_opts.func_name = "ngx_http_upstream_create";
+        skel->links.upstream_index_search_enter =
+                bpf_program__attach_uprobe_opts(skel->progs.upstream_index_search_enter,
+                                            //pid,
+                                           -1,
+                                           path.c_str(),
+                                        // NULL,
+                                           0,
+                                           &uprobe_opts);
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts1);
+            uprobe_opts1.retprobe = true;
+            uprobe_opts1.func_name = "ngx_http_upstream_create";
+            skel->links.upstream_index_search_exit =
+                    bpf_program__attach_uprobe_opts(skel->progs.upstream_index_search_exit,
+                                            //pid,
+                                            -1,
+                                            path.c_str(),
+                                            // NULL,
+                                            0,
+                                            &uprobe_opts1);
+            attach_uretprobe = true;
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts2);
+        uprobe_opts2.retprobe = false;
+        uprobe_opts2.func_name = "ngx_output_chain";
+        skel->links.ngx_output_chain_uprobe =
+                bpf_program__attach_uprobe_opts(skel->progs.ngx_output_chain_uprobe,
+                                   //pid,
+                                            -1,
+                                            path.c_str(),
+                                            // NULL,
+                                           0,
+                                           &uprobe_opts2);
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts3);
+        uprobe_opts3.retprobe = false;
+        uprobe_opts3.func_name = "ngx_http_free_request";
+        skel->links.ngx_http_free_request_uprobe =
+                bpf_program__attach_uprobe_opts(skel->progs.ngx_http_free_request_uprobe,
+                                    //pid,
+                                            -1,
+                                            path.c_str(),
+                                            // NULL,
+                                           0,
+                                           &uprobe_opts3);
+    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts4);
+        uprobe_opts4.retprobe = true;
+        uprobe_opts4.func_name = "ngx_http_create_request";
+        skel->links.create_request_http_uretprobe =
+                bpf_program__attach_uprobe_opts(skel->progs.create_request_http_uretprobe,
+                                    //pid,
+                                            -1,
+                                            path.c_str(),
+                                            // NULL,
+                                           0,
+                                           &uprobe_opts4);
+        if(libbpf_get_error(skel->links.upstream_index_search_enter) ||
+           libbpf_get_error(skel->links.upstream_index_search_exit) ||
+           libbpf_get_error(skel->links.ngx_output_chain_uprobe)) {
+            printf("err %ld\n", libbpf_get_error(skel->links.upstream_index_search_enter));
+            printf("err %ld\n", libbpf_get_error(skel->links.upstream_index_search_exit));
+            printf("err %ld\n", libbpf_get_error(skel->links.ngx_output_chain_uprobe));
+            fprintf(stderr, "Failed to attach uprobe\n");
             return -1;
         }
-        *p = '\0';
-        offset = strtoul(buf, NULL, 16);
-        printf("offset: 0x%x\n", offset);
-        attach_info_t key = make_attach_info(inode, offset);
-        if (attach_info_set.find(key) != attach_info_set.end()) {
-            continue;
-        }
-        skel->links.uprobe_ibv_create_qp =
-                bpf_program__attach_uprobe(skel->progs.uprobe_ibv_create_qp,
-                                           false,
-                                           -1,
-                                           lib_path_full.c_str(),
-                                           offset);
-    }
+    // }
     return 0;
 }
 
@@ -209,7 +180,6 @@ int main(int argc, char** argv) {
     struct uprobe_bpf* skel;
     int err;
     struct perf_buffer* cb_pb = NULL;
-    LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
     LIBBPF_OPTS(perf_buffer_opts, pb_opts);
 
     libbpf_set_print(libbpf_print_fn);
@@ -222,7 +192,7 @@ int main(int argc, char** argv) {
 
     std::thread trace_event_poller_thread(trace_event_poller, skel);
     trace_event_poller_thread.detach();
-    attach_init_uprobe_libibverbs(skel);
+    attach_init_uprobe(skel);
     err = uprobe_bpf__attach(skel);
     if (err) {
         fprintf(stderr, "Failed to attach BPF skeleton\n");
